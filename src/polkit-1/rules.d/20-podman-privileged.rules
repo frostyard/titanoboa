@@ -1,7 +1,7 @@
 polkit.addRule(function(action,subject) {
     if ( (action.id == "org.freedesktop.policykit.exec") &&
          (action.lookup("program") == "/usr/bin/podman") &&
-         (subject.isInGroup("wheel") ) ) {
+         (subject.isInGroup("sudo") ) ) {
       return polkit.Result.YES;
     }
 

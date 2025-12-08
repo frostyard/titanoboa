@@ -3,7 +3,9 @@ PODMAN := which("podman") || require("podman-remote")
 workdir := env("TITANOBOA_WORKDIR", "work")
 isoroot := env("TITANOBOA_ISO_ROOT", "work/iso-root")
 rootfs := workdir/"rootfs"
-default_image := "ghcr.io/horizonlinux/debian-bootc-test:latest"
+default_image := "ghcr.io/frostyard/snow:latest"
+extra_kargs := "snow-linux.live=1"
+instance_name := env("TITANOBOA_INSTANCE_NAME", "titanoboa-live")
 arch := arch()
 ### BUILDER CONFIGURATION ###
 # Distribution to use for the builder container (for tools and dependencies)
@@ -156,11 +158,12 @@ initramfs:
     {{ chroot_function }}
     set -euo pipefail
     CMD='set -xeuo pipefail
-    DEBIAN_FRONTEND=noninteractive apt install -y dracut-live
-    INSTALLED_KERNEL=$(basename "$(find /usr/lib/modules -maxdepth 1 -type d | grep -v -E "*.img" | tail -n 1)")
+    apt-get update
+    apt-get install -y dracut-live
+    KERNEL_VERSION=$(basename "$(find /usr/lib/modules -maxdepth 1 -type d | grep -v -E "*.img" | tail -n 1)")
     mkdir -p $(realpath /root)
     export DRACUT_NO_XATTR=1
-    dracut --force --no-hostonly --reproducible --zstd --add "dmsquash-live dmsquash-live-autooverlay" --verbose --kver "$INSTALLED_KERNEL" /app/{{ workdir }}/initramfs.img |& grep -v -e "Operation not supported"'
+    dracut --force --no-hostonly --reproducible --zstd --verbose --kver "$KERNEL_VERSION" --add "dmsquash-live dmsquash-live-autooverlay" /app/{{ workdir }}/initramfs.img |& grep -v -e "Operation not supported"'
     chroot "$CMD"
 
 # Embed the container
@@ -171,9 +174,7 @@ rootfs-include-container container_image=default_image image=default_image:
     set -euo pipefail
     CMD="set -xeuo pipefail
     mkdir -p /var/lib/containers/storage
-    DEBIAN_FRONTEND=noninteractive apt install -y podman skopeo
-    podman pull {{ container_image || image }}
-    DEBIAN_FRONTEND=noninteractive apt install -y fuse-overlayfs"
+    podman pull {{ container_image || image }}"
     chroot "$CMD"
 
 # Install Flatpaks into the live system
@@ -184,11 +185,10 @@ rootfs-include-flatpaks FLATPAKS_FILE="src/flatpaks.example.txt":
     {{ chroot_function }}
     CMD='set -xeuo pipefail
     mkdir -p /var/lib/flatpak
-    DEBIAN_FRONTEND=noninteractive apt install -y flatpak
 
     # Get Flatpaks
     flatpak remote-add --if-not-exists flathub "https://dl.flathub.org/repo/flathub.flatpakrepo"
-    grep -v "#.*" /flatpak-list/$(basename {{ FLATPAKS_FILE }}) | sort --reverse | xargs "-i{}" -d "\n" sh -c "flatpak remote-info --arch={{ arch }} --system flathub {} &>/dev/null && flatpak install --noninteractive -y {}" || true'
+    # grep -v "#.*" /flatpak-list/$(basename {{ FLATPAKS_FILE }}) | sort --reverse | xargs "-i{}" -d "\n" sh -c "flatpak remote-info --arch={{ arch }} --system flathub {} &>/dev/null && flatpak install --noninteractive -y {}" || true'
     set -euo pipefail
     chroot "$CMD" --volume "$(realpath "$(dirname {{ FLATPAKS_FILE }})")":/flatpak-list
 
@@ -219,28 +219,31 @@ rootfs-install-livesys-scripts livesys="1":
     install -D -m 0644 /tmp/livesys-scripts-0.8.0/libexec/livesys/sessions.d/livesys-* -t /usr/libexec/livesys/sessions.d/
     install -D -m 0644 /tmp/livesys-scripts-0.8.0/systemd/*.service -t /usr/lib/systemd/system
     cd /
-    
 
+
+    ls -la /usr/share/wayland-sessions/
     # Determine desktop environment. Must match one of /usr/libexec/livesys/sessions.d/livesys-{desktop_env}
     desktop_env=""
-    _session_file="$(find /usr/share/wayland-sessions/ /usr/share/xsessions \
-        -maxdepth 1 -type f -not -name '*gamescope*.desktop' -and -name '*.desktop' -printf '%P' -quit)"
-    case $_session_file in
-        budgie*) desktop_env=budgie ;;
-        cosmic*) desktop_env=cosmic ;;
-        gnome*)  desktop_env=gnome  ;;
-        plasma*) desktop_env=kde    ;;
-        sway*)   desktop_env=sway   ;;
-        xfce*)   desktop_env=xfce   ;;
-        *) echo "\
-           {{ style('error') }}ERROR[rootfs-install-livesys-scripts]{{ NORMAL }}\
-           : No Livesys Environment Found"; exit 1 ;;
-    esac && unset -v _session_file
-    sed -i "s/^livesys_session=.*/livesys_session=${desktop_env}/" /etc/sysconfig/livesys
+    # _session_file="$(find /usr/share/wayland-sessions/ /usr/share/xsessions \
+    #     -maxdepth 1 -type f -not -name '*gamescope*.desktop' -and -name '*.desktop' -printf '%P' -quit)"
+    # case $_session_file in
+    #     budgie*) desktop_env=budgie ;;
+    #     cosmic*) desktop_env=cosmic ;;
+    #     gnome*)  desktop_env=gnome  ;;
+    #     plasma*) desktop_env=kde    ;;
+    #     sway*)   desktop_env=sway   ;;
+    #     xfce*)   desktop_env=xfce   ;;
+    #     *) echo "\
+    #        {{ style('error') }}ERROR[rootfs-install-livesys-scripts]{{ NORMAL }}\
+    #        : No Livesys Environment Found"; exit 1 ;;
+    #esac && unset -v _session_file
+    sed -i "s/^livesys_session=.*/livesys_session=gnome/" /etc/sysconfig/livesys
 
     # Enable services
     systemctl enable livesys.service livesys-late.service
-    #systemctl enable gdm
+    # Mask systemd-networkd-wait-online to prevent it from running at all
+    systemctl mask systemd-networkd-wait-online.service
+    #systemctl disable plasma-setup.service
 
     # Set default time zone to prevent oddities with KDE clock
     echo "C /var/lib/livesys/livesys-session-extra 0755 root root - /usr/share/factory/var/lib/livesys/livesys-session-extra" > \
@@ -276,8 +279,9 @@ rootfs-clean-sysroot:
     set -euo pipefail
     CMD='set -xeuo pipefail
     if [[ -d /app ]]; then
-        DEBIAN_FRONTEND=noninteractive apt autoremove -y
-        DEBIAN_FRONTEND=noninteractive apt clean -y
+        rm -rf /sysroot /ostree
+        apt clean
+        rm -rf /var/cache/apt/archives/*
     fi'
     chroot "$CMD"
 
@@ -298,7 +302,7 @@ squash fs_type="squashfs":
     fi
 
 # Expand grub templace, according to the image os-release.
-process-grub-template $extra_kargs="NONE":
+process-grub-template $extra_kargs="snow-linux.live=1":
     #!/usr/bin/env bash
     {{ _ci_grouping }}
     set -xeuo pipefail
@@ -317,6 +321,17 @@ process-grub-template $extra_kargs="NONE":
         -e "s|@PRETTY_NAME@|${PRETTY_NAME}|g" \
         -e "s|@EXTRA_KARGS@|${kargs[*]}|g" \
         "$TMPL" >"$DEST"
+
+# Install Secure Boot signed packages into rootfs
+rootfs-install-secureboot:
+    #!/usr/bin/env bash
+    {{ _ci_grouping }}
+    {{ chroot_function }}
+    set -euo pipefail
+    CMD='set -xeuo pipefail
+    apt-get update
+    apt-get install -y shim-signed grub-efi-amd64-signed'
+    chroot "$CMD"
 
 # Prep the environment for the ISO
 iso-organize extra_kargs: && (process-grub-template extra_kargs)
@@ -340,11 +355,13 @@ iso:
     CMD='set -xeuo pipefail
     ISOROOT="$0"
     WORKDIR="$1"
+    ROOTFS="$2"
     dnf install -y grub2 grub2-efi grub2-tools grub2-tools-extra xorriso shim dosfstools {{ if arch == "x86_64" { 'grub2-efi-x64-modules grub2-efi-x64-cdboot grub2-efi-x64' } else if arch == "aarch64" { 'grub2-efi-aa64-modules' } else { '' } }}
     mkdir -p $ISOROOT/EFI/BOOT
     # ARCH_SHORT needs to be uppercase
     ARCH_SHORT="$(echo {{ arch }} | sed 's/x86_64/x64/g' | sed 's/aarch64/aa64/g')"
     ARCH_32="$(echo {{ arch }} | sed 's/x86_64/ia32/g' | sed 's/aarch64/arm/g')"
+
     cp -avf $ISOROOT/boot/grub/grub.cfg $ISOROOT/EFI/BOOT/BOOT.conf
     cp -avf $ISOROOT/boot/grub/grub.cfg $ISOROOT/EFI/BOOT/grub.cfg
 
@@ -353,8 +370,49 @@ iso:
     ARCH_OUT="$(echo {{ arch }} | sed 's/x86_64/i386-pc-eltorito/g' | sed 's/aarch64/arm64-efi/g')"
     ARCH_MODULES="$(echo {{ arch }} | sed 's/x86_64/biosdisk/g' | sed 's/aarch64/efi_gop/g')"
 
+    # Create BIOS boot image for legacy boot
     grub2-mkimage -O $ARCH_OUT -d /usr/lib/grub/$ARCH_GRUB -o $ISOROOT/boot/eltorito.img -p /boot/grub iso9660 $ARCH_MODULES
-    grub2-mkrescue -o $ISOROOT/../efiboot.img
+
+    # Create EFI boot image with Secure Boot support
+    # Instead of using grub2-mkrescue (which creates unsigned binaries),
+    # we manually create an EFI System Partition with signed binaries
+    dd if=/dev/zero of=$ISOROOT/../efiboot.img bs=1M count=10
+    mkfs.vfat -F 12 -n "TITANOBOOT" $ISOROOT/../efiboot.img
+
+    # Mount and populate with signed EFI binaries and GRUB modules
+    EFIBOOT_MNT=$(mktemp -d)
+    mount -o loop $ISOROOT/../efiboot.img $EFIBOOT_MNT
+    mkdir -p $EFIBOOT_MNT/EFI/BOOT
+    mkdir -p $EFIBOOT_MNT/boot/grub/x86_64-efi
+
+    # Copy signed binaries for Secure Boot
+    if [ "{{ arch }}" == "x86_64" ] && [ -f "$ROOTFS/usr/lib/shim/shimx64.efi.signed" ]; then
+        echo "Installing Secure Boot signed binaries to EFI partition..."
+        cp -v "$ROOTFS/usr/lib/shim/shimx64.efi.signed" "$EFIBOOT_MNT/EFI/BOOT/BOOTX64.EFI"
+        cp -v "$ROOTFS/usr/lib/shim/mmx64.efi.signed" "$EFIBOOT_MNT/EFI/BOOT/mmx64.efi"
+        if [ -f "$ROOTFS/usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed" ]; then
+            cp -v "$ROOTFS/usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed" "$EFIBOOT_MNT/EFI/BOOT/grubx64.efi"
+        fi
+        # Also copy to ISO root for dual boot support
+        cp -v "$ROOTFS/usr/lib/shim/shimx64.efi.signed" "$ISOROOT/EFI/BOOT/BOOTX64.EFI"
+        cp -v "$ROOTFS/usr/lib/shim/mmx64.efi.signed" "$ISOROOT/EFI/BOOT/mmx64.efi"
+        if [ -f "$ROOTFS/usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed" ]; then
+            cp -v "$ROOTFS/usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed" "$ISOROOT/EFI/BOOT/grubx64.efi"
+        fi
+    fi
+
+    # Copy GRUB modules (needed by signed GRUB)
+    if [ -d "$ROOTFS/usr/lib/grub/x86_64-efi" ]; then
+        cp -r "$ROOTFS/usr/lib/grub/x86_64-efi"/*.mod "$EFIBOOT_MNT/boot/grub/x86_64-efi/" 2>/dev/null || true
+        cp -r "$ROOTFS/usr/lib/grub/x86_64-efi"/*.lst "$EFIBOOT_MNT/boot/grub/x86_64-efi/" 2>/dev/null || true
+    fi
+
+    # Copy GRUB configuration
+    cp -v $ISOROOT/boot/grub/grub.cfg $EFIBOOT_MNT/EFI/BOOT/grub.cfg
+    cp -v $ISOROOT/boot/grub/grub.cfg $EFIBOOT_MNT/boot/grub/grub.cfg
+
+    umount $EFIBOOT_MNT
+    rmdir $EFIBOOT_MNT
 
     ARCH_SPECIFIC=()
     if [ "{{ arch }}" == "x86_64" ] ; then
@@ -386,23 +444,24 @@ iso:
         $ISOROOT'
     set -euo pipefail
     if ! (( BUILDER )); then
-        bash -c "$CMD" "$(realpath {{ isoroot }})" "$(realpath {{ workdir }})"
+        bash -c "$CMD" "$(realpath {{ isoroot }})" "$(realpath {{ workdir }})" "$(realpath {{ rootfs }})"
     else
         {{ if `systemd-detect-virt -c || true` != 'none' { "echo '" + style('error') + "ERROR[iso]" + NORMAL + ": Cannot run in nested containers'; exit 1" } else { '' } }}
         {{ builder_function }}
-        CMD="DEBIAN_FRONTEND=noninteractive apt install -y grub2 shim-signed dosfstools xorriso {{ if arch == "x86_64" { 'grub-efi-amd64' } else if arch == "aarch64" { 'grub-efi-arm64' } else { '' } }} ; $CMD"
-        builder "$CMD" "/app/{{ isoroot }}" "/app/{{ workdir }}"
+        CMD="pacman -Sy --noconfirm grub libisoburn shim dosfstools ; $CMD"
+        builder "$CMD" "/app/{{ isoroot }}" "/app/{{ workdir }}" "/app/{{ rootfs }}"
     fi
 
 # TODO update this recipe parameters. Make it actually usable
 [no-exit-message]
 [doc('Build a live-iso')]
-@build image=default_image livesys="1" flatpaks_file="src/flatpaks.example.txt" compression="squashfs" extra_kargs="NONE" container_image=image polkit="1": \
+@build image=default_image livesys="1" flatpaks_file="src/flatpaks.example.txt" compression="squashfs" extra_kargs="snow-linux.live=1" container_image=image polkit="1": \
     checkroot \
     (show-config image livesys flatpaks_file compression extra_kargs container_image polkit) \
     clean \
     init-work \
     (rootfs image) \
+    rootfs-install-secureboot \
     (hook-pre-initramfs HOOK_pre_initramfs) \
     initramfs \
     (rootfs-include-flatpaks flatpaks_file) \
@@ -522,3 +581,51 @@ container-run-vm ISO_FILE:
 [private]
 whereis +FILE_PATHS:
     @realpath -e {{ FILE_PATHS }}
+
+launch-incus:
+    #!/usr/bin/env bash
+    image_file=output.iso
+
+    if [ ! -f "$image_file" ]; then
+        echo "No image file found"
+        exit 1
+    fi
+
+    abs_image_file=$(realpath "$image_file")
+
+    instance_name="{{ instance_name }}"
+    echo "Creating instance $instance_name from image file $abs_image_file"
+    incus init "$instance_name" --empty --vm
+    incus config device override "$instance_name" root size=50GiB
+    incus config set "$instance_name" limits.cpu=4 limits.memory=8GiB
+    incus config set "$instance_name" security.secureboot=true
+    incus config device add "$instance_name" vtpm tpm
+    incus config device add "$instance_name" install disk source="$abs_image_file" boot.priority=90
+    incus start "$instance_name"
+    echo "$instance_name is Starting..."
+    incus console --type=vga "$instance_name"
+
+rm-install:
+    #!/usr/bin/env bash
+    instance_name="{{ instance_name }}"
+    echo "Removing install device from $instance_name"
+    incus config device remove "$instance_name" install
+
+start:
+    #!/usr/bin/env bash
+    instance_name="{{ instance_name }}"
+    incus start "$instance_name" || true
+
+console: start
+    #!/usr/bin/env bash
+    instance_name="{{ instance_name }}"
+    incus console --type=vga "$instance_name"
+
+qemu:
+    #!/usr/bin/env bash
+    instance_name="{{ instance_name }}"
+    echo "Starting QEMU with instance $instance_name"
+    qemu-system-x86_64 -enable-kvm -m 4G \
+    -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd \
+    -drive if=pflash,format=raw,file=/tmp/OVMF_VARS.fd \
+    -cdrom output.iso
