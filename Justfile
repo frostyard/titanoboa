@@ -629,3 +629,6 @@ qemu:
     -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd \
     -drive if=pflash,format=raw,file=/tmp/OVMF_VARS.fd \
     -cdrom output.iso
+
+go:
+    sudo {{ just }} build 

@@ -17,7 +17,8 @@ jobs:
         platform: [amd64]
         image:
           # cool images list :)
-          - ghcr.io/horizonlinux/debian-bootc-test:latest
+          - ghcr.io/frostyard/snow:latest
+          - ghcr.io/frostyard/snowfield:latest
     steps:
       - name: Maximize Build Space
         if: matrix.platform == 'amd64'
