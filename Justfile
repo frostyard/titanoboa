@@ -598,7 +598,7 @@ launch-incus:
     incus init "$instance_name" --empty --vm
     incus config device override "$instance_name" root size=50GiB
     incus config set "$instance_name" limits.cpu=4 limits.memory=8GiB
-    incus config set "$instance_name" security.secureboot=true
+    incus config set "$instance_name" security.secureboot=false
     incus config device add "$instance_name" vtpm tpm
     incus config device add "$instance_name" install disk source="$abs_image_file" boot.priority=90
     incus start "$instance_name"
