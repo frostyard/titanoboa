@@ -1,18 +1,6 @@
 # Titanoboa (Beta)
 
-A [bootc](https://github.com/bootc-dev/bootc) installer designed to install an image as quickly as possible. Handles a live user session and then hands off to Anaconda or Readymade for installation. 
-
-## Mission
-
-This is an experiment to see how far we can get building our own ISOs. The objective is to:
-
-- Generate a LiveCD so users can try out an image before committing
-- Install the image and flatpaks to a selected disk with minimal user-input
-- Basically be an MVP for `bootc install` 
-
-## Why?
-
-Waiting for existing installers to move to cloud native is untenable, let's see if we can remove that external dependency forever. 😈
+A [bootc](https://github.com/bootc-dev/bootc) live iso generator. You bring the live session & setup, we make the iso.
 
 ## Components
 
@@ -21,26 +9,32 @@ Waiting for existing installers to move to cloud native is untenable, let's see 
 ## Building a Live ISO
 
 ```bash
-just build ghcr.io/ublue-os/bluefin:lts
+just build ghcr.io/frostyard/snow:latest
 just vm ./output.iso
 ```
 
 ### Builder Distribution Support
 
-By default, Titanoboa uses Fedora containers for building tools and dependencies. You can now specify different builder distributions using the `TITANOBOA_BUILDER_DISTRO` environment variable:
+By default, Titanoboa uses Debian containers for building tools and dependencies. You can specify different builder distributions using the `TITANOBOA_BUILDER_DISTRO` environment variable:
 
-- **fedora** (default): Uses `quay.io/fedora/fedora:latest`
-- **centos**: Uses `ghcr.io/hanthor/centos-anaconda-builder:main`
+- **debian** (default): Uses `docker.io/library/debian:trixie`
+- **ubuntu**: Uses `docker.io/library/ubuntu:noble`
 
 Examples:
-```bash
-# Use CentOS Stream 10 for building
-TITANOBOA_BUILDER_DISTRO=centos just build ghcr.io/ublue-os/bluefin:lts
 
-# Use Fedora (default)
-just build ghcr.io/ublue-os/bluefin:lts
+```bash
+# Use Ubuntu for building
+TITANOBOA_BUILDER_DISTRO=ubuntu just build ghcr.io/your-org/your-image:latest
+
+# Use Debian (default)
+just build ghcr.io/your-org/your-image:latest
 ```
 
-## Contributor Metrics
+### Secure Boot Support
 
-![Alt](https://repobeats.axiom.co/api/embed/ab79f8a8b6ba6111cc7123cbbb8762864c76699f.svg "Repobeats analytics image")
+The ISO is built with Secure Boot support using Debian's signed shim and GRUB binaries:
+
+- `shim-signed`: Microsoft-signed shim bootloader
+- `grub-efi-amd64-signed`: Signed GRUB EFI binary
+
+These signed binaries are copied from the rootfs container image into the ISO's EFI partition, ensuring compatibility with UEFI Secure Boot.

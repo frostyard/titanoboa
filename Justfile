@@ -9,9 +9,9 @@ instance_name := env("TITANOBOA_INSTANCE_NAME", "titanoboa-live")
 arch := arch()
 ### BUILDER CONFIGURATION ###
 # Distribution to use for the builder container (for tools and dependencies)
-# Supported values: fedora, centos, almalinux
-# Set via TITANOBOA_BUILDER_DISTRO environment variable (default: fedora)
-builder_distro := env("TITANOBOA_BUILDER_DISTRO", "fedora")
+# Supported values: debian, ubuntu
+# Set via TITANOBOA_BUILDER_DISTRO environment variable (default: debian)
+builder_distro := env("TITANOBOA_BUILDER_DISTRO", "debian")
 ##############################
 
 ### HOOKS SCRIPT PATHS ###
@@ -39,7 +39,7 @@ just := just_executable() + " -f " + source_file()
 git_root := source_dir()
 
 [private]
-builder_image := if builder_distro == "fedora" { "quay.io/fedora/fedora:latest" } else if builder_distro == "centos" { "ghcr.io/hanthor/centos-anaconda-builder:main" } else if builder_distro == "almalinux-kitten" { "quay.io/almalinux/almalinux:10-kitten" } else if builder_distro == "almalinux" { "quay.io/almalinux/almalinux:10" } else { error("Unsupported builder distribution: " + builder_distro + ". Supported: fedora, centos, almalinux") }
+builder_image := if builder_distro == "debian" { "docker.io/library/debian:trixie" } else if builder_distro == "ubuntu" { "docker.io/library/ubuntu:noble" } else { error("Unsupported builder distribution: " + builder_distro + ". Supported: debian, ubuntu") }
 
 
 [private]
@@ -94,31 +94,26 @@ function compress_dependencies(){
 iso_dependencies := '
 function iso_dependencies(){
     local MISSING=()
-    local RPMS=(
+    local PKGS=(
         dosfstools
-        grub2
-        grub2-efi
-        grub2-tools
-        grub2-tools-extra
-        shim
+        grub-common
+        grub-efi-amd64-bin
+        grub-efi-amd64-signed
+        grub-pc-bin
+        shim-signed
         xorriso
+        mtools
     )
-    if [[ "' + arch + '" == "x86_64" ]]; then
-        RPMS+=(
-            grub2-efi-x64
-            grub2-efi-x64-cdboot
-            grub2-efi-x64-modules
-        )
-    elif [[ "' + arch + '" == "aarch64" ]]; then
-        RPMS+=(grub2-efi-aa64-modules)
+    if [[ "' + arch + '" == "aarch64" ]]; then
+        PKGS+=(grub-efi-arm64-bin grub-efi-arm64-signed)
     fi
-    if ! command -v rpm >/dev/null; then
+    if ! command -v dpkg >/dev/null; then
         echo "1"
         return
     fi
-    for rpm in "${RPMS[@]}"; do
-        if ! rpm -q $rpm >/dev/null; then
-            MISSING+=($rpm)
+    for pkg in "${PKGS[@]}"; do
+        if ! dpkg -s $pkg >/dev/null 2>&1; then
+            MISSING+=($pkg)
         fi
     done
     echo "${#MISSING[@]}"
@@ -173,8 +168,7 @@ rootfs-include-container container_image=default_image image=default_image:
     {{ chroot_function }}
     set -euo pipefail
     CMD="set -xeuo pipefail
-    mkdir -p /var/lib/containers/storage
-    podman pull {{ container_image || image }}"
+    mkdir -p /var/lib/containers/storage"
     chroot "$CMD"
 
 # Install Flatpaks into the live system
@@ -297,7 +291,7 @@ squash fs_type="squashfs":
     if ! (( BUILDER )); then
         bash -c "$CMD" "$(realpath {{ rootfs }})" "$(realpath {{ workdir }})"
     else
-        CMD="dnf install -y {{ if fs_type == 'squashfs' { 'squashfs-tools' } else if fs_type == 'erofs' { 'erofs-utils' } else { '' } }} ; $CMD"
+        CMD="apt-get update && apt-get install -y {{ if fs_type == 'squashfs' { 'squashfs-tools' } else if fs_type == 'erofs' { 'erofs-utils' } else { '' } }} ; $CMD"
         builder "$CMD" "/app/{{ rootfs }}" "/app/{{ workdir }}"
     fi
 
@@ -330,7 +324,7 @@ rootfs-install-secureboot:
     set -euo pipefail
     CMD='set -xeuo pipefail
     apt-get update
-    apt-get install -y shim-signed grub-efi-amd64-signed'
+    apt-get install -y shim-signed grub-efi-amd64-signed grub-efi-amd64-bin'
     chroot "$CMD"
 
 # Prep the environment for the ISO
@@ -356,7 +350,7 @@ iso:
     ISOROOT="$0"
     WORKDIR="$1"
     ROOTFS="$2"
-    dnf install -y grub2 grub2-efi grub2-tools grub2-tools-extra xorriso shim dosfstools {{ if arch == "x86_64" { 'grub2-efi-x64-modules grub2-efi-x64-cdboot grub2-efi-x64' } else if arch == "aarch64" { 'grub2-efi-aa64-modules' } else { '' } }}
+    apt-get update && apt-get install -y grub-common grub-pc-bin grub-efi-amd64-bin grub-efi-amd64-signed shim-signed xorriso dosfstools mtools {{ if arch == "aarch64" { 'grub-efi-arm64-bin grub-efi-arm64-signed' } else { '' } }}
     mkdir -p $ISOROOT/EFI/BOOT
     # ARCH_SHORT needs to be uppercase
     ARCH_SHORT="$(echo {{ arch }} | sed 's/x86_64/x64/g' | sed 's/aarch64/aa64/g')"
@@ -370,11 +364,11 @@ iso:
     ARCH_OUT="$(echo {{ arch }} | sed 's/x86_64/i386-pc-eltorito/g' | sed 's/aarch64/arm64-efi/g')"
     ARCH_MODULES="$(echo {{ arch }} | sed 's/x86_64/biosdisk/g' | sed 's/aarch64/efi_gop/g')"
 
-    # Create BIOS boot image for legacy boot
-    grub2-mkimage -O $ARCH_OUT -d /usr/lib/grub/$ARCH_GRUB -o $ISOROOT/boot/eltorito.img -p /boot/grub iso9660 $ARCH_MODULES
+    # Create BIOS boot image for legacy boot (using Debian grub-mkimage)
+    grub-mkimage -O $ARCH_OUT -d /usr/lib/grub/$ARCH_GRUB -o $ISOROOT/boot/eltorito.img -p /boot/grub iso9660 $ARCH_MODULES
 
     # Create EFI boot image with Secure Boot support
-    # Instead of using grub2-mkrescue (which creates unsigned binaries),
+    # Instead of using grub-mkrescue (which creates unsigned binaries),
     # we manually create an EFI System Partition with signed binaries
     dd if=/dev/zero of=$ISOROOT/../efiboot.img bs=1M count=10
     mkfs.vfat -F 12 -n "TITANOBOOT" $ISOROOT/../efiboot.img
@@ -385,7 +379,7 @@ iso:
     mkdir -p $EFIBOOT_MNT/EFI/BOOT
     mkdir -p $EFIBOOT_MNT/boot/grub/x86_64-efi
 
-    # Copy signed binaries for Secure Boot
+    # Copy signed binaries for Secure Boot (Debian paths)
     if [ "{{ arch }}" == "x86_64" ] && [ -f "$ROOTFS/usr/lib/shim/shimx64.efi.signed" ]; then
         echo "Installing Secure Boot signed binaries to EFI partition..."
         cp -v "$ROOTFS/usr/lib/shim/shimx64.efi.signed" "$EFIBOOT_MNT/EFI/BOOT/BOOTX64.EFI"
@@ -401,10 +395,10 @@ iso:
         fi
     fi
 
-    # Copy GRUB modules (needed by signed GRUB)
-    if [ -d "$ROOTFS/usr/lib/grub/x86_64-efi" ]; then
-        cp -r "$ROOTFS/usr/lib/grub/x86_64-efi"/*.mod "$EFIBOOT_MNT/boot/grub/x86_64-efi/" 2>/dev/null || true
-        cp -r "$ROOTFS/usr/lib/grub/x86_64-efi"/*.lst "$EFIBOOT_MNT/boot/grub/x86_64-efi/" 2>/dev/null || true
+    # Copy GRUB EFI modules from builder (Debian path: /usr/lib/grub/x86_64-efi)
+    if [ -d "/usr/lib/grub/x86_64-efi" ]; then
+        cp -r /usr/lib/grub/x86_64-efi/*.mod "$EFIBOOT_MNT/boot/grub/x86_64-efi/" 2>/dev/null || true
+        cp -r /usr/lib/grub/x86_64-efi/*.lst "$EFIBOOT_MNT/boot/grub/x86_64-efi/" 2>/dev/null || true
     fi
 
     # Copy GRUB configuration
@@ -448,7 +442,6 @@ iso:
     else
         {{ if `systemd-detect-virt -c || true` != 'none' { "echo '" + style('error') + "ERROR[iso]" + NORMAL + ": Cannot run in nested containers'; exit 1" } else { '' } }}
         {{ builder_function }}
-        CMD="pacman -Sy --noconfirm grub libisoburn shim dosfstools ; $CMD"
         builder "$CMD" "/app/{{ isoroot }}" "/app/{{ workdir }}" "/app/{{ rootfs }}"
     fi
 
@@ -597,8 +590,8 @@ launch-incus:
     echo "Creating instance $instance_name from image file $abs_image_file"
     incus init "$instance_name" --empty --vm
     incus config device override "$instance_name" root size=50GiB
-    incus config set "$instance_name" limits.cpu=4 limits.memory=8GiB
-    incus config set "$instance_name" security.secureboot=false
+    incus config set "$instance_name" limits.cpu=4 limits.memory=16GiB
+    incus config set "$instance_name" security.secureboot=true
     incus config device add "$instance_name" vtpm tpm
     incus config device add "$instance_name" install disk source="$abs_image_file" boot.priority=90
     incus start "$instance_name"
@@ -631,4 +624,7 @@ qemu:
     -cdrom output.iso
 
 go:
-    sudo {{ just }} build 
+    sudo {{ just }} build
+
+upload:
+    scp output.iso  caddy:/mnt/caddy/snow-installer-ph.iso

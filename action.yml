@@ -44,9 +44,9 @@ inputs:
     required: false
     default: ""
   builder-distro:
-    description: Distribution to use for the builder container (for tools and dependencies)
+    description: "Distribution to use for the builder container (for tools and dependencies). Supported values: debian, ubuntu"
     required: false
-    default: fedora
+    default: debian
 outputs:
   iso-dest:
     description: Where the iso was be placed
