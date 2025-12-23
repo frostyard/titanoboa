@@ -6,10 +6,6 @@ inputs:
   image-ref:
     description: Reference to the bootc container image.
     required: true
-  livesys:
-    description: Install livesys helpers on the rootfs for the ISO
-    required: false
-    default: "true"
   compression:
     description: Which type of compression will the ISO will use (erofs (default), or squashfs (smaller sizes, slower read))
     required: false
@@ -66,7 +62,6 @@ runs:
         DESTINATION_PATH: ${{ inputs.iso-dest }}
         COMPRESSION: ${{ inputs.compression }}
         IMAGE_REF: ${{ inputs.image-ref }}
-        LIVESYS: ${{ inputs.livesys }}
         ACTION_PATH: ${{ github.action_path }}
         FLATPAKS_LIST: ${{ inputs.flatpaks-list }}
         ADD_POLKIT: ${{ inputs.add-polkit }}
@@ -82,7 +77,6 @@ runs:
 
         just=$(which just)
 
-        USE_LIVESYS=$(echo "${LIVESYS}" | sed -e 's/true/1/g' -e 's/false/0/g')
         ADD_POLKIT=$(echo "${ADD_POLKIT}" | sed -e 's/true/1/g' -e 's/false/0/g')
 
         sudo \
@@ -92,7 +86,7 @@ runs:
           HOOK_pre_initramfs="${HOOK_PRE_INITRAMFS}" \
           TITANOBOA_BUILDER_DISTRO="${TITANOBOA_BUILDER_DISTRO}" \
           $just build \
-          "${IMAGE_REF}" "${USE_LIVESYS}" "${FLATPAKS_LIST}" "${COMPRESSION}" "${EXTRA_KARGS}" "${CONTAINER_IMAGE}" "${ADD_POLKIT}"
+          "${IMAGE_REF}" "${FLATPAKS_LIST}" "${COMPRESSION}" "${EXTRA_KARGS}" "${CONTAINER_IMAGE}" "${ADD_POLKIT}"
 
         # Fix iso file permisions
         sudo chown $(id -u):$(id -g) ./output.iso
