@@ -137,7 +137,8 @@ rootfs image=default_image:
     {{ _ci_grouping }}
     set -xeuo pipefail
     # Pull and Extract Filesystem
-    {{ PODMAN }} pull {{ image }} # Pull newer image
+    {{ PODMAN }} rmi {{ image }} 2>/dev/null || true
+    {{ PODMAN }} pull {{ image }}
     ctr="$({{ PODMAN }} create --rm {{ image }} /usr/bin/bash)" && trap "{{ PODMAN }} rm $ctr" EXIT
     {{ PODMAN }} export $ctr | tar --xattrs-include='*' -p -xf - -C {{ rootfs }}
 
@@ -194,57 +195,6 @@ rootfs-include-polkit polkit="1":
     set -euo pipefail
     install -D -m 0644 {{ git_root }}/src/polkit-1/rules.d/*.rules -t {{ rootfs }}/etc/polkit-1/rules.d
 
-# Install Livesys Scripts
-rootfs-install-livesys-scripts livesys="1":
-    #!/usr/bin/env bash
-    {{ _ci_grouping }}
-    {{ if livesys == "0" { 'exit 0' } else { '' } }}
-    {{ chroot_function }}
-    set -euo pipefail
-    CMD='set -xeuo pipefail
-    curl https://pagure.io/livesys-scripts/archive/0.8.0/livesys-scripts-0.8.0.tar.gz --output /tmp/livesys.tar.gz
-    cd /tmp
-    tar -xf livesys.tar.gz
-    cd livesys-scripts-0.8.0
-    install -D -m 0644 /tmp/livesys-scripts-0.8.0/etc/sysconfig/livesys -t /etc/sysconfig
-    install -D -m 0644 /tmp/livesys-scripts-0.8.0/libexec/livesys/functions -t /usr/libexec/livesys
-    install -D -m 0644 /tmp/livesys-scripts-0.8.0/libexec/livesys/livesys-late -t /usr/libexec/livesys
-    install -D -m 0644 /tmp/livesys-scripts-0.8.0/libexec/livesys/livesys-main -t /usr/libexec/livesys
-    install -D -m 0644 /tmp/livesys-scripts-0.8.0/libexec/livesys/sessions.d/livesys-* -t /usr/libexec/livesys/sessions.d/
-    install -D -m 0644 /tmp/livesys-scripts-0.8.0/systemd/*.service -t /usr/lib/systemd/system
-    cd /
-
-
-    ls -la /usr/share/wayland-sessions/
-    # Determine desktop environment. Must match one of /usr/libexec/livesys/sessions.d/livesys-{desktop_env}
-    desktop_env=""
-    # _session_file="$(find /usr/share/wayland-sessions/ /usr/share/xsessions \
-    #     -maxdepth 1 -type f -not -name '*gamescope*.desktop' -and -name '*.desktop' -printf '%P' -quit)"
-    # case $_session_file in
-    #     budgie*) desktop_env=budgie ;;
-    #     cosmic*) desktop_env=cosmic ;;
-    #     gnome*)  desktop_env=gnome  ;;
-    #     plasma*) desktop_env=kde    ;;
-    #     sway*)   desktop_env=sway   ;;
-    #     xfce*)   desktop_env=xfce   ;;
-    #     *) echo "\
-    #        {{ style('error') }}ERROR[rootfs-install-livesys-scripts]{{ NORMAL }}\
-    #        : No Livesys Environment Found"; exit 1 ;;
-    #esac && unset -v _session_file
-    sed -i "s/^livesys_session=.*/livesys_session=gnome/" /etc/sysconfig/livesys
-
-    # Enable services
-    systemctl enable livesys.service livesys-late.service
-    # Mask systemd-networkd-wait-online to prevent it from running at all
-    systemctl mask systemd-networkd-wait-online.service
-    #systemctl disable plasma-setup.service
-
-    # Set default time zone to prevent oddities with KDE clock
-    echo "C /var/lib/livesys/livesys-session-extra 0755 root root - /usr/share/factory/var/lib/livesys/livesys-session-extra" > \
-      /usr/lib/tmpfiles.d/livesys-session-extra.conf'
-    chroot "$CMD"
-    install -D -m 0644 {{ git_root }}/src/livesys-session-extra {{ rootfs }}/usr/share/factory/var/lib/livesys/livesys-session-extra
-
 # Hook used for custom operations done in the rootfs before it is squashed.
 # Meant to be used in a GH action.
 hook-post-rootfs hook=HOOK_post_rootfs:
@@ -265,7 +215,7 @@ hook-pre-initramfs hook=HOOK_pre_initramfs:
     set -euo pipefail
     chroot "$(cat '{{ hook }}')"
 
-# Remove the sysroot tree
+# Remove the sysroot tree and configure live environment
 rootfs-clean-sysroot:
     #!/usr/bin/env bash
     {{ _ci_grouping }}
@@ -276,7 +226,9 @@ rootfs-clean-sysroot:
         rm -rf /sysroot /ostree
         apt clean
         rm -rf /var/cache/apt/archives/*
-    fi'
+    fi
+    # Mask systemd-networkd-wait-online to prevent boot delays
+    systemctl mask systemd-networkd-wait-online.service'
     chroot "$CMD"
 
 # Compress rootfs into a compressed image
@@ -448,9 +400,9 @@ iso:
 # TODO update this recipe parameters. Make it actually usable
 [no-exit-message]
 [doc('Build a live-iso')]
-@build image=default_image livesys="1" flatpaks_file="src/flatpaks.example.txt" compression="squashfs" extra_kargs="snow-linux.live=1" container_image=image polkit="1": \
+@build image=default_image flatpaks_file="src/flatpaks.example.txt" compression="squashfs" extra_kargs="snow-linux.live=1" container_image=image polkit="1": \
     checkroot \
-    (show-config image livesys flatpaks_file compression extra_kargs container_image polkit) \
+    (show-config image flatpaks_file compression extra_kargs container_image polkit) \
     clean \
     init-work \
     (rootfs image) \
@@ -459,7 +411,6 @@ iso:
     initramfs \
     (rootfs-include-flatpaks flatpaks_file) \
     (rootfs-include-polkit polkit) \
-    (rootfs-install-livesys-scripts livesys) \
     (rootfs-include-container container_image image) \
     (hook-post-rootfs HOOK_post_rootfs) \
     rootfs-clean-sysroot \
@@ -470,7 +421,7 @@ iso:
     mv ./output.iso {{ justfile_dir() }} &>/dev/null
 
 
-@show-config image livesys flatpaks_file compression extra_kargs container_image polkit:
+@show-config image flatpaks_file compression extra_kargs container_image polkit:
     echo "Using the following configuration:"
     echo "{{ style('warning') }}################################################################################{{ NORMAL }}"
     echo "PODMAN             := {{ PODMAN }}"
@@ -482,7 +433,6 @@ iso:
     echo "HOOK_post_rootfs   := {{ if HOOK_post_rootfs =~ '(^$|^(?i)\bnone\b$)' { '' } else { canonicalize(HOOK_post_rootfs) } }}"
     echo "HOOK_pre_initramfs := {{ if HOOK_pre_initramfs =~ '(^$|^(?i)\bnone\b$)' { '' } else { canonicalize(HOOK_pre_initramfs) } }}"
     echo "image              := {{ image }}"
-    echo "livesys            := {{ livesys }}"
     echo "flatpaks_file      := {{ if flatpaks_file =~ '(^$|^(?i)\bnone\b$)' { '' } else { canonicalize(flatpaks_file) } }}"
     echo "compression        := {{ compression }}"
     echo "extra_kargs        := {{ extra_kargs }}"
@@ -623,8 +573,14 @@ qemu:
     -drive if=pflash,format=raw,file=/tmp/OVMF_VARS.fd \
     -cdrom output.iso
 
-go:
+snow:
     sudo {{ just }} build
+    scp output.iso  caddy:/mnt/caddy/snow-installer-latest.iso
+
+snowfield:
+    sudo {{ just }} build ghcr.io/frostyard/snowfield:latest
+    scp output.iso  caddy:/mnt/caddy/snowfield-installer-latest.iso
+
 
 upload:
-    scp output.iso  caddy:/mnt/caddy/snow-installer-ph.iso
+    scp output.iso  caddy:/mnt/caddy/snow-installer-nbc.iso
