@@ -263,9 +263,12 @@ process-grub-template $extra_kargs="snow-linux.live=1":
     DEST="{{ isoroot }}/boot/grub/grub.cfg"
     # TODO figure out a better mechanism
     PRETTY_NAME="$(source "$OS_RELEASE" >/dev/null && echo "${PRETTY_NAME/ (*)}")"
+    BOOT_NAME="$(echo "$PRETTY_NAME" | tr -cd '[:alnum:]' | tr '[:upper:]' '[:lower:]')_boot"
+    echo "$BOOT_NAME" > "{{ workdir }}/boot_name.txt"
     sed \
         -e "s|@PRETTY_NAME@|${PRETTY_NAME}|g" \
         -e "s|@EXTRA_KARGS@|${kargs[*]}|g" \
+        -e "s|@BOOT_NAME@|${BOOT_NAME}|g" \
         "$TMPL" >"$DEST"
 
 # Install Secure Boot signed packages into rootfs
@@ -365,9 +368,10 @@ iso:
         ARCH_SPECIFIC=("--grub2-mbr" "/usr/lib/grub/i386-pc/boot_hybrid.img")
     fi
 
+    BOOT_NAME="$(cat /app/{{ workdir }}/boot_name.txt)"
     xorrisofs \
         -R \
-        -V titanoboa_boot \
+        -V "$BOOT_NAME" \
         -partition_offset 16 \
         -appended_part_as_gpt \
         -append_partition 2 C12A7328-F81F-11D2-BA4B-00A0C93EC93B \
@@ -573,14 +577,19 @@ qemu:
     -drive if=pflash,format=raw,file=/tmp/OVMF_VARS.fd \
     -cdrom output.iso
 
+# build snow ISO
 snow:
     sudo {{ just }} build
     scp output.iso  caddy:/mnt/caddy/snow-installer-latest.iso
 
+# build snowfield ISO
 snowfield:
     sudo {{ just }} build ghcr.io/frostyard/snowfield:latest
     scp output.iso  caddy:/mnt/caddy/snowfield-installer-latest.iso
 
+# build cayo ISO
+cayo:
+    sudo {{ just }} build ghcr.io/frostyard/cayo:latest none squashfs cayo-linux.live=1 image 1
 
 upload:
     scp output.iso  caddy:/mnt/caddy/snow-installer-nbc.iso
