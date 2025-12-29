@@ -1,6 +1,9 @@
 name: CI
 
 on:
+  repository_dispatch:
+    types:
+      - build
   workflow_dispatch:
   merge_group:
   pull_request:
