@@ -577,19 +577,15 @@ qemu:
     -drive if=pflash,format=raw,file=/tmp/OVMF_VARS.fd \
     -cdrom output.iso
 
-# build snow ISO
+# build and push snow ISO
 snow:
     sudo {{ just }} build
     scp output.iso  caddy:/mnt/caddy/snow-installer-latest.iso
 
-# build snowfield ISO
+# build and push snowfield ISO
 snowfield:
     sudo {{ just }} build ghcr.io/frostyard/snowfield:latest
     scp output.iso  caddy:/mnt/caddy/snowfield-installer-latest.iso
-
-# build cayo ISO
-cayo:
-    sudo {{ just }} build ghcr.io/frostyard/cayo:latest none squashfs cayo-linux.live=1 image 1
 
 upload:
     scp output.iso  caddy:/mnt/caddy/snow-installer-nbc.iso

@@ -12,10 +12,10 @@ insmod chain
 
 set timeout=10
 
-search --no-floppy --set=root -l '@BOOT_NAME@_boot'
+search --no-floppy --set=root -l '@BOOT_NAME@'
 
 menuentry '@PRETTY_NAME@ Live ISO' --class fedora --class gnu-linux --class gnu --class os {
-  linux ($root)/boot/vmlinuz quiet rhgb root=live:CDLABEL=@BOOT_NAME@_boot enforcing=0 rd.live.image @EXTRA_KARGS@
+  linux ($root)/boot/vmlinuz quiet rhgb root=live:CDLABEL=@BOOT_NAME@ enforcing=0 rd.live.image @EXTRA_KARGS@
   initrd ($root)/boot/initramfs.img
 }
 
