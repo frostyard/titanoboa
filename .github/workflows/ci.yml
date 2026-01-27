@@ -26,6 +26,8 @@ jobs:
             suffix: ""
           - script: nbc-download_postrootfs.sh
             suffix: "-offline"
+          - script: firefox_postrootfs.sh
+            suffix: ""
     steps:
       - name: Maximize Build Space
         if: matrix.platform == 'amd64'
