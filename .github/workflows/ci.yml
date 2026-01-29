@@ -22,8 +22,6 @@ jobs:
           # cool images list :)
           - ghcr.io/frostyard/snow:latest
         hook-post-rootfs:
-          - script: ci_dummy_hook_postrootfs.sh
-            suffix: ""
           - script: nbc-download_postrootfs.sh
             suffix: "-offline"
           - script: firefox_postrootfs.sh

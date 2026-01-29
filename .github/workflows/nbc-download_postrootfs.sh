@@ -2,6 +2,10 @@
 
 set -eo pipefail
 
+apt-get update -y
+apt-get install -y firefox-esr
+
+
 # check to see if `nbc` command is available
 if ! command -v nbc &> /dev/null
 then
