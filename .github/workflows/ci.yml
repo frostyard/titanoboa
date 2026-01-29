@@ -59,7 +59,7 @@ jobs:
             ${{ steps.build-iso.outputs.iso-dest }}
       - run: |
           mkdir -p output
-          mv ${{ steps.build-iso.outputs.iso-dest }}/*.iso output/snow${{ matrix.hook-post-rootfs.suffix }}-${{ matrix.platform }}.iso
+          mv *.iso output/snow${{ matrix.hook-post-rootfs.suffix }}-${{ matrix.platform }}.iso
       - uses: ryand56/r2-upload-action@latest
         with:
           r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
