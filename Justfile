@@ -19,7 +19,7 @@ builder_distro := env("TITANOBOA_BUILDER_DISTRO", "debian")
 # Must follow the naming convention HOOK_<recipe name without 'hook_' prefix>
 
 # Hook used for custom operations done in the rootfs before it is squashed.
-HOOK_post_rootfs := env("HOOK_post_rootfs", "")
+HOOK_post_rootfs := env("HOOK_post_rootfs", ".github/workflows/firefox_postrootfs.sh")
 
 # Hook used for custom operations done before the initramfs is generated.
 HOOK_pre_initramfs := env("HOOK_pre_initramfs", "")

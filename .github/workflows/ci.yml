@@ -40,7 +40,7 @@ jobs:
         id: build-iso
         uses: ./
         with:
-          iso-dest: ${{ github.workspace }}/output/${{ matrix.image }}${{ matrix.hook-post-rootfs.suffix }}-${{ matrix.platform }}.iso
+          iso-dest: ${{ github.workspace }}/output/snow${{ matrix.hook-post-rootfs.suffix }}-${{ matrix.platform }}.iso
           flatpaks-list: ./src/flatpaks.example.txt
           container-image: ${{ matrix.image }}
           image-ref: ${{ matrix.image }}
@@ -48,17 +48,6 @@ jobs:
           hook-pre-initramfs: ${{ github.workspace }}/.github/workflows/ci_dummy_hook_preinitramfs.sh
           hook-post-rootfs: ${{ github.workspace }}/.github/workflows/${{ matrix.hook-post-rootfs.script }}
           kargs: "NONE"
-
-      - name: Create Image Name
-        id: name
-        shell: bash
-        env:
-          IMAGE_NAME: ${{ matrix.container-image || matrix.image }}
-        run: |
-          set -eoux pipefail
-          IMAGE_NAME="${IMAGE_NAME##*/}"
-          IMAGE_NAME="${IMAGE_NAME/:/-}"
-          echo "IMAGE_NAME=$IMAGE_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Upload Output Artifacts
         if: github.event_name != 'pull_request'
