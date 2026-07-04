@@ -41,6 +41,15 @@ install -D -m 0644 /app/src/bootc-installer/99-live-installer.rules \
 # fisherman on a stable path (the polkit action annotation points here).
 FISHERMAN=$(find /var/lib/flatpak/app/org.bootcinstaller.Installer -name fisherman -type f | head -1)
 test -n "$FISHERMAN"
+
+# Replace the bundle's fisherman with the frostyard build when staged in the
+# repo (src/bootc-installer/fisherman, untracked): carries the composefs
+# scratch-store pull fix and cosign verification until upstream releases them.
+if [ -x /app/src/bootc-installer/fisherman ]; then
+    install -m 0755 /app/src/bootc-installer/fisherman "$FISHERMAN"
+    echo "Replaced bundle fisherman with frostyard build"
+fi
+
 mkdir -p /usr/local/bin
 ln -sf "$FISHERMAN" /usr/local/bin/fisherman
 
