@@ -1,5 +1,8 @@
 set unstable := true
-PODMAN := which("podman") || require("podman-remote")
+set lists := true
+# `which()` needs the unstable `lists` feature flag on just >= 1.55;
+# an env override with a PATH-resolved default is portable across versions.
+PODMAN := env("TITANOBOA_PODMAN", "podman")
 workdir := env("TITANOBOA_WORKDIR", "work")
 isoroot := env("TITANOBOA_ISO_ROOT", "work/iso-root")
 rootfs := workdir/"rootfs"
@@ -545,7 +548,7 @@ launch-incus:
     incus init "$instance_name" --empty --vm
     incus config device override "$instance_name" root size=50GiB
     incus config set "$instance_name" limits.cpu=4 limits.memory=16GiB
-    incus config set "$instance_name" security.secureboot=true
+    incus config set "$instance_name" security.secureboot=false
     incus config device add "$instance_name" vtpm tpm
     incus config device add "$instance_name" install disk source="$abs_image_file" boot.priority=90
     incus start "$instance_name"

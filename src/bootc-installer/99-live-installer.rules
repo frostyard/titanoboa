@@ -1,0 +1,13 @@
+// Allow the live-session user to run the installer backend (fisherman) via
+// pkexec without a password. The installer copies fisherman to a temporary
+// path, so polkit fires the generic policykit.exec action rather than
+// org.bootcos.Installer.install — both are granted. Safe on live media only:
+// the "snow" live user already has passwordless sudo and the session is
+// ephemeral and single-purpose.
+polkit.addRule(function(action, subject) {
+    if ((action.id === "org.bootcos.Installer.install" ||
+         action.id === "org.freedesktop.policykit.exec") &&
+            subject.user === "snow" && subject.local) {
+        return polkit.Result.YES;
+    }
+});

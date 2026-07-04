@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Install Snow Linux
+Exec=flatpak run --env=BOOTC_CUSTOM_RECIPE=/run/host/etc/bootc-installer/recipe.json org.bootcinstaller.Installer
+Icon=drive-harddisk
+Type=Application
+X-GNOME-Autostart-enabled=true
